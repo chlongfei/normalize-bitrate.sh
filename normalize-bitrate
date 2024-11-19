@@ -1,0 +1,98 @@
+#!/bin/bash
+#
+# Analyze all *.mp3 and *.wav files within a defined directory that are within the specified bitrate range, converting them to 320kbps.
+# Licence: GNU GPLv3 - https://chlf.dev/gnu-gplv3
+#
+# LongFei Chen -  2024
+# CHLF.dev
+
+# PARAMETERS
+BR_LE=276000
+BR_GE=48000
+
+##################################
+# Cleanup declared variables.
+# Args:
+#   None
+##################################
+function cleanup() {
+    FD=
+    JP=
+    FILE_LIST=
+    FILE_BITRATE=
+}
+trap cleanup EXIT
+
+# Create job log file name.
+JP="$(date +%s)-job.csv"
+
+# Check that target directory was passed via argument, local directory by default.
+if [ $# -eq 0 ]; then
+    FD=.
+else
+    FD=$1
+fi
+
+# Print help to stdout if "-h" was passed in arguments.
+if [ $FD == "-h" ]; then
+    echo "./normalize-bitrate [-h help] [target/filepath - current directory by default]"
+    exit 0
+fi
+
+# Check that target directory passed in exists.
+if [ ! -d "$FD" ]; then
+    echo "[ERROR] directory \"$FD\" not found" >&2
+    exit 1
+fi
+
+# Check that ffmpeg is installed on system.
+ffmpeg -version 2>&1 >/dev/null
+if [ $? -gt 0 ]; then
+    echo "[ERROR] FFMPEG is not installed. Please ensure it's installed before running this script" >&2
+    exit 1
+fi
+
+# Initialize the job log file.
+touch $JP
+printf "Bitrate,File Path,Action\n" > $JP
+
+# Scan target directory for .mp3 and .wav files.
+echo "[INFO] Checking for files in \"$FD\""
+
+FILE_LIST=()
+OLD_IFS=$IFS
+
+while IFS=  read -r -d $'\0'; do
+    FILE_LIST+=("$REPLY")
+done < <(find $FD -type f \( -iname "*.mp3" -o -iname "*.wav" \) -print0)
+
+IFS=$OLD_IFS
+OLD_IFS=
+
+echo "[INFO] Found ${#FILE_LIST[@]} files"
+
+# Evaluate individual files against target bitrate range and re-encode into 320kbps as required.
+for file in "${FILE_LIST[@]}"
+do
+    # get bitrate
+    FILE_BITRATE=`ffprobe -v error -select_streams a:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1  "$file"`
+    printf "$FILE_BITRATE,\"$file\"," >> $JP
+
+    # re-encode file to 320kbps if between 48kbps and 276kbps
+    if [ $FILE_BITRATE -ge $BR_GE ] && [ $FILE_BITRATE -le $BR_LE ]; then
+        # rename old file with ".old"
+        mv "$file" "$file.old"
+        # re-encode file to 320kbps
+        ffmpeg -loglevel error -i "$file.old" -codec:a libmp3lame -b:a 320k "$file"
+        wait $!
+
+        printf "Converted" >> $JP
+        echo "[INFO] \"$file\" bitrate $FILE_BITRATE converted"
+    else
+        printf "Not-Converted" >> $JP
+        echo "[INFO] \"$file\" bitrate $FILE_BITRATE no conversion needed"
+    fi
+        printf "\n" >> $JP
+done
+
+echo "[INFO] Done!"
