@@ -14,6 +14,8 @@ DESCRIPTION
     * To analyze all files (including files within child directories) from target directory
         ./normalize-bitrate target
 
+    at every execution, a .csv log of all files processed is created in the directory of execution.
+
 OPTIONS
 
     -h  outputs help text displaying usage
